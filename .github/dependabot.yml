@@ -1,0 +1,80 @@
+# Ancestry — dependency updates.
+#
+# Two ecosystems are worth watching automatically:
+#   * `npm`          — the extension and its build/test toolchain.
+#   `github-actions` — the CI pipeline itself, which is a supply-chain surface
+#                       like any other dependency.
+#
+# Grouped so a weekly window produces a small number of reviewable PRs instead
+# of forty single-bump PRs.
+
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Etc/UTC
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - npm
+    commit-message:
+      prefix: 'chore(deps)'
+    groups:
+      typescript:
+        patterns:
+          - typescript
+          - '@typescript-eslint/*'
+          - eslint
+          - eslint-config-prettier
+          - prettier
+        update-types:
+          - minor
+          - patch
+      test:
+        patterns:
+          - vitest
+          - '@vitest/*'
+        update-types:
+          - minor
+          - patch
+      webview:
+        patterns:
+          - three
+          - '@types/three'
+          - d3-scale
+          - '@types/d3-scale'
+          - d3-scale-chromatic
+          - '@types/d3-scale-chromatic'
+        update-types:
+          - minor
+          - patch
+      build:
+        patterns:
+          - esbuild
+          - '@vscode/vsce'
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - ci
+    commit-message:
+      prefix: 'chore(ci)'
+    groups:
+      actions:
+        patterns:
+          - '*'

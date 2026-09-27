@@ -1,0 +1,46 @@
+{
+  // Tasks the launch configurations depend on. `npm: build` is what makes F5
+  // meaningful: the extension host loads `dist/extension.js` and the panel loads
+  // `media/webview.js`, neither of which exists in a fresh clone.
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "type": "npm",
+      "script": "build",
+      "problemMatcher": "$tsc",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "label": "npm: build"
+    },
+    {
+      // Deterministic 27-commit history with seven scenarios and two decoys.
+      // `--force` replaces an existing directory, so this is safe to re-run.
+      "type": "shell",
+      "command": "node scripts/make-demo-repo.mjs .demo-repo --force",
+      "problemMatcher": [],
+      "label": "npm: demo repo"
+    },
+    {
+      "dependsOn": ["npm: build", "npm: demo repo"],
+      "problemMatcher": [],
+      "label": "npm: build + demo repo"
+    },
+    {
+      "type": "shell",
+      "command": "npx vitest run --reporter=basic",
+      "problemMatcher": [],
+      "label": "npm: test"
+    },
+    {
+      // Serves the webview in a normal browser at http://127.0.0.1:8731 so the 3D
+      // panel can be checked without the extension host.
+      "type": "shell",
+      "command": "node scripts/preview-webview.mjs --serve",
+      "problemMatcher": [],
+      "isBackground": true,
+      "label": "npm: webview preview"
+    }
+  ]
+}

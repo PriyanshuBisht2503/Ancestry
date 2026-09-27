@@ -1,0 +1,26 @@
+# Normalise line endings in the repository, and check out LF everywhere.
+#
+# Why this file exists: without it, Git on Windows checks files out as CRLF and
+# stores them as LF, so the same file has different bytes depending on who
+# committed it. That produces whole-file diffs, makes `git blame` attribute
+# unrelated lines, and means CI on Linux and a contributor on Windows are not
+# looking at the same source. The warnings during `git add` ("LF will be replaced
+# by CRLF") were the symptom.
+#
+# `text=auto eol=lf` makes the repository authoritative: LF in the object store,
+# LF in every working copy. Node, TypeScript and the test suite all handle LF
+# natively on Windows, so nothing needs CRLF here.
+* text=auto eol=lf
+
+# These are executed by Windows, where a shebang line ending in CR is a real
+# problem, and by nothing else. Explicit rather than left to the global rule.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Lockfiles and generated bundles are not hand-edited; keep diffs honest.
+package-lock.json -diff
+*.vsix binary
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary

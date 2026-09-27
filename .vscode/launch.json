@@ -1,0 +1,32 @@
+{
+  // F5 ("Run Extension") launches an Extension Development Host: a second VS Code
+  // window with this extension loaded from source. Without this file the Run and
+  // Debug panel offers nothing and F5 silently does nothing, which is the first
+  // thing anyone tries when they clone the repo.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run Extension",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
+      "outFiles": ["${workspaceFolder}/dist/**/*.js"],
+      // Both halves of the build matter: the extension bundle for the host
+      // process, and the webview bundle for the panel. Launching without the
+      // webview gives a panel that opens and renders nothing.
+      "preLaunchTask": "npm: build"
+    },
+    {
+      // Convenience: same thing, but also opens the generated demo repository, so
+      // there is something with real ancestry to analyse straight away. Requires
+      // `node scripts/make-demo-repo.mjs .demo-repo --force` to have been run;
+      // the `npm: demo repo` task below does it for you.
+      "name": "Run Extension (demo repository)",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}", "${workspaceFolder}/.demo-repo"],
+      "outFiles": ["${workspaceFolder}/dist/**/*.js"],
+      "preLaunchTask": "npm: build + demo repo"
+    }
+  ]
+}

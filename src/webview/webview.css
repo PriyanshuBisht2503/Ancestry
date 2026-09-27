@@ -1,0 +1,866 @@
+/*
+ * The Ancestry webview stylesheet.
+ *
+ * WHY THIS FILE EXISTS NOW
+ * ------------------------
+ * `src/webview/html.ts` still carries `buildWebviewCss()` as a *runtime
+ * fallback*: `host.ts` materialises `media/webview.css` from it when the file is
+ * missing (a `npm run clean` followed by a run without a rebuild). This file is
+ * the real source of truth for the shipped stylesheet — Vite compiles it into
+ * `media/webview.css`, which is the file the CSP-approved `<link>` loads.
+ *
+ * The two must therefore keep covering the same regions. `html.test.ts` asserts
+ * that: every selector `buildWebviewCss()` styles must also be styled here, or
+ * one of the two paths renders an unstyled panel.
+ *
+ * RULES
+ * -----
+ *  - No sheet imports, no embedded font declarations, no `url()` reference.
+ *    `style-src` is the webview origin only, so a remote sheet or a webfont
+ *    would be blocked *and* would be a policy violation. The panel uses the
+ *    workbench's own fonts.
+ *  - Every colour is a `--vscode-*` token with a hard-coded fallback, so the
+ *    panel is native in light, dark and high-contrast themes and survives a
+ *    future VS Code renaming a token.
+ *  - Semantic colours (edge types, classifications) are duplicated from
+ *    `core/colors.ts` as literals. They are *data*, not theme, and they are what
+ *    the legend promises; `tests/webview/colors.test.ts` is what keeps them
+ *    honest.
+ *  - Layout is CSS grid on `#ancestry-root` (the React mount container), so the
+ *    region names here are grid areas, and the React children map onto them by
+ *    class name.
+ */
+
+/* ------------------------------------------------------------------ tokens */
+
+:root {
+  --ancestry-bg: var(--vscode-editor-background, #1e1e1e);
+  --ancestry-fg: var(--vscode-editor-foreground, #d4d4d4);
+  --ancestry-muted: var(--vscode-descriptionForeground, #9d9d9d);
+  --ancestry-border: var(--vscode-panel-border, #3c3c3c);
+  --ancestry-surface: var(--vscode-editorWidget-background, #252526);
+  --ancestry-surface-alt: var(--vscode-sideBar-background, #252526);
+  --ancestry-accent: var(--vscode-focusBorder, #0a7aca);
+  --ancestry-accent-soft: var(--vscode-badge-background, #4d8bf5);
+  --ancestry-error: var(--vscode-errorForeground, #f14c4c);
+  --ancestry-warning: var(--vscode-editorWarning-foreground, #cca700);
+  --ancestry-selection: var(--vscode-list-activeSelectionBackground, #04395e);
+  --ancestry-input-bg: var(--vscode-input-background, #3c3c3c);
+  --ancestry-input-fg: var(--vscode-input-foreground, #cccccc);
+  --ancestry-button-bg: var(--vscode-button-background, #0e639c);
+  --ancestry-button-fg: var(--vscode-button-foreground, #ffffff);
+  --ancestry-button-hover: var(--vscode-button-hoverBackground, #1177bb);
+  --ancestry-focus: var(--vscode-focusBorder, #0a7aca);
+  --ancestry-code-bg: var(--vscode-textCodeBlock-background, #2b2b2b);
+  --ancestry-radius: 4px;
+  --ancestry-gap: 8px;
+  --ancestry-font: var(--vscode-font-family, system-ui, -apple-system, 'Segoe UI', sans-serif);
+  --ancestry-mono: var(--vscode-editor-font-family, 'SF Mono', Menlo, Consolas, monospace);
+  --ancestry-size: var(--vscode-font-size, 13px);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: var(--ancestry-bg);
+  color: var(--ancestry-fg);
+  font-family: var(--ancestry-font);
+  font-size: var(--ancestry-size);
+}
+
+/*
+ * The React mount container. React renders this element's children (the header,
+ * legend, filter bar, stage, details, list, status bar) and never touches any
+ * DOM the Three.js renderer appends inside `.stage-canvas-host` or
+ * `.label-layer`.
+ */
+.ancestry-root {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-rows: auto auto auto minmax(0, 1fr) minmax(0, 0.55fr) auto;
+  grid-template-areas:
+    'header header'
+    'legend legend'
+    'filter filter'
+    'stage details'
+    'stage list'
+    'status status';
+  height: 100vh;
+  width: 100vw;
+  gap: 1px;
+  background: var(--ancestry-border);
+}
+
+/* ------------------------------------------------------------------ header */
+
+.header {
+  grid-area: header;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--ancestry-gap);
+  padding: 10px 12px;
+  background: var(--ancestry-surface);
+}
+
+.header-main {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.header-title {
+  margin: 0 0 2px;
+  font-size: 1.05em;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ancestry-fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.header-summary {
+  margin: 0;
+  color: var(--ancestry-muted);
+  font-size: 0.92em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.header-signature {
+  margin: 3px 0 0;
+  color: var(--ancestry-muted);
+  font-family: var(--ancestry-mono);
+  font-size: 0.82em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.header-warnings {
+  margin: 6px 0 0;
+  color: var(--ancestry-muted);
+  font-size: 0.85em;
+}
+
+.header-warnings > summary {
+  cursor: pointer;
+}
+
+.warning-list {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  max-height: 96px;
+  overflow: auto;
+}
+
+.header-preview {
+  flex: 0 1 40%;
+  max-height: 84px;
+  margin: 0;
+  padding: 6px 8px;
+  overflow: auto;
+  background: var(--ancestry-code-bg);
+  border: 1px solid var(--ancestry-border);
+  border-radius: var(--ancestry-radius);
+  font-family: var(--ancestry-mono);
+  font-size: 0.85em;
+  line-height: 1.35;
+  white-space: pre;
+  color: var(--ancestry-fg);
+}
+
+.header-preview:empty {
+  display: none;
+}
+
+/* -------------------------------------------------------- truncation banner */
+
+/*
+ * Rendered only when `graph.stats.truncated` is true. The border colour is the
+ * warning token, not the error token: a truncated scan is not a failure, it is
+ * a caveat on the result, and styling it as an error would train the user to
+ * ignore it.
+ */
+.banner {
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  border-left: 3px solid var(--ancestry-warning);
+  background: var(--ancestry-surface-alt);
+  border-radius: 0 var(--ancestry-radius) var(--ancestry-radius) 0;
+}
+
+.banner-title {
+  margin: 0;
+  font-size: 0.85em;
+  font-weight: 600;
+  color: var(--ancestry-fg);
+}
+
+.banner-body {
+  margin: 2px 0 0;
+  color: var(--ancestry-muted);
+  font-size: 0.82em;
+  line-height: 1.4;
+}
+
+/* ------------------------------------------------------------------ legend */
+
+.legend {
+  grid-area: legend;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  padding: 6px 12px;
+  background: var(--ancestry-surface-alt);
+  border-top: 1px solid var(--ancestry-border);
+  border-bottom: 1px solid var(--ancestry-border);
+  font-size: 0.85em;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ancestry-muted);
+}
+
+.legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1px solid var(--ancestry-border);
+  flex: 0 0 auto;
+}
+
+.legend-swatch.edge {
+  height: 2px;
+  width: 16px;
+  border-radius: 1px;
+  border: none;
+}
+
+.legend-swatch.focus {
+  outline: 2px solid var(--ancestry-accent);
+  outline-offset: 1px;
+}
+
+.legend-note {
+  color: var(--ancestry-muted);
+  font-style: italic;
+}
+
+/* -------------------------------------------------------------- filter bar */
+
+.filter-bar {
+  grid-area: filter;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ancestry-gap);
+  padding: 6px 12px;
+  background: var(--ancestry-surface);
+}
+
+.filter-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.85em;
+  color: var(--ancestry-muted);
+}
+
+.filter-field > label {
+  white-space: nowrap;
+}
+
+.filter-field select,
+.filter-field input[type='search'],
+.filter-field input[type='text'],
+.filter-field input[type='date'] {
+  background: var(--ancestry-input-bg);
+  color: var(--ancestry-input-fg);
+  border: 1px solid var(--ancestry-border);
+  border-radius: var(--ancestry-radius);
+  padding: 2px 4px;
+  font-family: inherit;
+  font-size: 1em;
+  max-width: 190px;
+}
+
+.filter-field input[type='range'] {
+  width: 110px;
+  accent-color: var(--ancestry-accent-soft);
+}
+
+.filter-value {
+  min-width: 3.2em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--ancestry-fg);
+}
+
+.filter-toggles {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.filter-toggles-label {
+  color: var(--ancestry-muted);
+  font-size: 0.85em;
+}
+
+.filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px 1px 3px;
+  border: 1px solid var(--ancestry-border);
+  border-radius: 999px;
+  cursor: pointer;
+  user-select: none;
+  color: var(--ancestry-muted);
+  font-size: 0.85em;
+}
+
+.filter-toggle input {
+  margin: 0;
+  accent-color: var(--ancestry-accent-soft);
+}
+
+.filter-toggle.is-on {
+  color: var(--ancestry-fg);
+  border-color: var(--ancestry-accent);
+}
+
+.filter-toggle .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.filter-summary {
+  margin-left: auto;
+  color: var(--ancestry-muted);
+  font-size: 0.85em;
+  font-variant-numeric: tabular-nums;
+}
+
+button.ancestry-button {
+  background: var(--ancestry-button-bg);
+  color: var(--ancestry-button-fg);
+  border: none;
+  border-radius: var(--ancestry-radius);
+  padding: 3px 10px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.88em;
+}
+
+button.ancestry-button:hover:not(:disabled) {
+  background: var(--ancestry-button-hover);
+}
+
+button.ancestry-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/*
+ * One rule for every focusable thing in the panel. A focus ring that only some
+ * controls have is a keyboard trap in spirit: the user cannot tell where the
+ * caret went.
+ */
+button.ancestry-button:focus-visible,
+.filter-field select:focus-visible,
+.filter-field input:focus-visible,
+.stage-canvas:focus-visible,
+.node-list-item:focus-visible,
+.link:focus-visible,
+.toast-dismiss:focus-visible {
+  outline: 1px solid var(--ancestry-focus);
+  outline-offset: 1px;
+}
+
+/* ------------------------------------------------------------------- stage */
+
+.stage {
+  grid-area: stage;
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--ancestry-bg);
+}
+
+/*
+ * The renderer's mount point. React renders this element with NO children, so
+ * the `<canvas>` the renderer appends here is invisible to the reconciler — see
+ * the long comment at the top of `GraphCanvas.tsx`.
+ */
+.stage-canvas-host {
+  position: absolute;
+  inset: 0;
+}
+
+.stage-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;
+}
+
+.stage-canvas.is-dragging {
+  cursor: grabbing;
+}
+
+.label-layer,
+.axis-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.axis-overlay-x {
+  bottom: 0;
+  height: 22px;
+}
+
+.axis-overlay-y {
+  left: 0;
+  top: 0;
+  width: 132px;
+}
+
+.axis-tick {
+  position: absolute;
+  font-size: 0.72em;
+  color: var(--ancestry-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  transform: translate(-50%, 0);
+}
+
+.axis-tick.major {
+  color: var(--ancestry-fg);
+}
+
+.axis-row-label {
+  position: absolute;
+  font-size: 0.72em;
+  color: var(--ancestry-muted);
+  white-space: nowrap;
+  transform: translate(4px, -50%);
+  max-width: 124px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-left: 3px solid transparent;
+  padding-left: 3px;
+}
+
+.node-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding: 0 3px;
+  font-size: 0.72em;
+  color: var(--ancestry-fg);
+  background: var(--ancestry-bg);
+  border-radius: 2px;
+  white-space: nowrap;
+  transform: translate(-50%, -140%);
+  pointer-events: none;
+}
+
+.node-label.is-focus {
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.node-label.is-origin {
+  color: #00ffc8;
+}
+
+/* ----------------------------------------------------------------- overlay */
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ancestry-bg);
+  z-index: 5;
+}
+
+.overlay-loading .overlay-inner {
+  border-color: var(--ancestry-accent);
+}
+
+.overlay-inner {
+  min-width: 260px;
+  padding: 16px 18px;
+  background: var(--ancestry-surface);
+  border: 1px solid var(--ancestry-border);
+  border-radius: var(--ancestry-radius);
+  text-align: center;
+}
+
+.overlay-message {
+  margin: 0 0 10px;
+  color: var(--ancestry-fg);
+}
+
+.progress {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--ancestry-border);
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  width: 0%;
+  background: var(--ancestry-accent-soft);
+  transition: width 120ms linear;
+}
+
+/* ----------------------------------------------------------------- details */
+
+.details {
+  grid-area: details;
+  min-width: 0;
+  overflow: auto;
+  padding: 10px 12px;
+  background: var(--ancestry-surface);
+  border-left: 1px solid var(--ancestry-border);
+}
+
+.details-empty {
+  margin: 0;
+  color: var(--ancestry-muted);
+  font-style: italic;
+}
+
+.details-section {
+  margin: 0 0 12px;
+}
+
+.details-section-title {
+  margin: 0 0 4px;
+  font-size: 0.78em;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ancestry-muted);
+}
+
+.details-row {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 2px 8px;
+  margin-bottom: 2px;
+  font-size: 0.88em;
+}
+
+.details-key {
+  color: var(--ancestry-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.details-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--ancestry-fg);
+}
+
+.details-value.mono {
+  font-family: var(--ancestry-mono);
+}
+
+.details-source,
+.details-signature {
+  margin: 0;
+  padding: 6px 8px;
+  background: var(--ancestry-code-bg);
+  border: 1px solid var(--ancestry-border);
+  border-radius: var(--ancestry-radius);
+  font-family: var(--ancestry-mono);
+  font-size: 0.82em;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 240px;
+  overflow: auto;
+}
+
+/*
+ * The origin disclaimer. The one piece of copy in the product that is legally
+ * and epistemically load-bearing (see docs/specification.md §5), so it gets the
+ * most prominent treatment in the panel: a warning-coloured rule down its left
+ * edge and its own surface.
+ */
+.disclaimer {
+  margin: 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--ancestry-warning);
+  background: var(--ancestry-surface-alt);
+  color: var(--ancestry-muted);
+  font-size: 0.85em;
+  line-height: 1.45;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 0.78em;
+  line-height: 1.6;
+  color: var(--ancestry-fg);
+  background: var(--ancestry-border);
+}
+
+/* These four mirror `CLASSIFICATION_COLORS` in `core/colors.ts`. */
+.badge.strong {
+  background: #2ecc71;
+  color: #06210f;
+}
+
+.badge.possible {
+  background: #f1c40f;
+  color: #241d00;
+}
+
+.badge.weak {
+  background: #e67e22;
+  color: #241000;
+}
+
+.badge.unrelated {
+  background: #7f8c8d;
+  color: #101010;
+}
+
+.ancestry-path {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.85em;
+}
+
+.ancestry-path li {
+  padding: 1px 0;
+  color: var(--ancestry-muted);
+}
+
+.ancestry-path li::before {
+  content: '\\2193';
+  margin-right: 6px;
+  color: var(--ancestry-accent-soft);
+}
+
+.ancestry-path li.is-current {
+  font-weight: 600;
+  color: var(--ancestry-fg);
+}
+
+button.link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--ancestry-focus);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+}
+
+/* -------------------------------------------------------------- node list */
+
+.node-list {
+  grid-area: list;
+  min-width: 0;
+  overflow: auto;
+  background: var(--ancestry-surface);
+  border-left: 1px solid var(--ancestry-border);
+  border-top: 1px solid var(--ancestry-border);
+}
+
+.node-list-title {
+  position: sticky;
+  top: 0;
+  margin: 0;
+  padding: 5px 12px;
+  font-size: 0.78em;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ancestry-muted);
+  background: var(--ancestry-surface);
+  border-bottom: 1px solid var(--ancestry-border);
+}
+
+.node-list-items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.node-list-entry {
+  display: block;
+}
+
+/*
+ * A `<button>`, not a `role="button"` div: native focus, native Enter and Space
+ * activation, no keyboard handling to get wrong. `display: flex` on the button
+ * makes the swatch, the path and the classification line up without the button
+ * losing its accessible name (all three are in the name).
+ */
+.node-list-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 3px 8px;
+  text-align: left;
+  font: inherit;
+  color: var(--ancestry-fg);
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--ancestry-border);
+  cursor: pointer;
+}
+
+.node-list-item:hover,
+.node-list-item.is-selected {
+  background: var(--ancestry-selection);
+}
+
+.node-list-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.85em;
+}
+
+.node-list-meta {
+  margin-left: auto;
+  color: var(--ancestry-muted);
+  font-size: 0.75em;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------- status bar */
+
+.status-bar {
+  grid-area: status;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ancestry-gap);
+  padding: 4px 12px;
+  background: var(--ancestry-surface);
+  border-top: 1px solid var(--ancestry-border);
+  font-size: 0.82em;
+  color: var(--ancestry-muted);
+}
+
+.status-message {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-shortcuts {
+  white-space: nowrap;
+  opacity: 0.8;
+  display: inline-flex;
+  gap: 8px;
+}
+
+.status-shortcut kbd {
+  font-family: var(--ancestry-mono);
+  padding: 0 3px;
+  border: 1px solid var(--ancestry-border);
+  border-radius: 2px;
+}
+
+/* ------------------------------------------------------------------- toast */
+
+.toast {
+  position: fixed;
+  right: 16px;
+  bottom: 40px;
+  max-width: 420px;
+  padding: 10px 12px;
+  background: var(--ancestry-surface);
+  border: 1px solid var(--ancestry-error);
+  border-left-width: 3px;
+  border-radius: var(--ancestry-radius);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+  z-index: 20;
+}
+
+.toast-message {
+  margin: 0;
+  color: var(--ancestry-error);
+  font-weight: 600;
+}
+
+.toast-detail {
+  margin: 4px 0 0;
+  color: var(--ancestry-muted);
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
+.toast-dismiss {
+  margin-top: 8px;
+}
+
+.noscript {
+  padding: 16px;
+  color: var(--ancestry-fg);
+  font-family: var(--ancestry-font);
+}
+
+/* ------------------------------------------------------------ narrow pane */
+
+@media (max-width: 720px) {
+  .ancestry-root {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto auto minmax(0, 1fr) minmax(0, 0.4fr) minmax(0, 0.3fr) auto;
+    grid-template-areas:
+      'header'
+      'legend'
+      'filter'
+      'stage'
+      'details'
+      'list'
+      'status';
+  }
+
+  .details,
+  .node-list {
+    border-left: none;
+    border-top: 1px solid var(--ancestry-border);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-bar {
+    transition: none;
+  }
+}

@@ -1,0 +1,369 @@
+# Ancestry — continuous integration.
+#
+# The job graph below follows the implementation plan's Phase 16 order exactly:
+#
+#   Install -> Lint -> Type Check -> Unit Tests -> Integration Tests -> Build -> Package
+#
+# `lint`, `typecheck`, `test` and `test-integration` run on BOTH Windows and
+# Ubuntu. The git engine shells out to the real `git` binary and path handling is
+# the single most platform-sensitive part of this extension, so a suite that only
+# ever passes on Ubuntu is a suite that does not work for most users.
+# `build` and `package` are Ubuntu-only: they have no platform-specific behaviour
+# and producing one artifact is enough.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# One run per ref. Superseded runs on the same branch are cancelled so a force
+# push does not burn runner minutes on results nobody will read.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Default-deny. Only the `release` job widens this, and only for the tag it
+# publishes to.
+permissions:
+  contents: read
+
+env:
+  # The integration tests create real repositories. These three settings make
+  # that hermetic: no system gitconfig is read, git can never block on a
+  # credential prompt, and every commit has a deterministic identity.
+  GIT_CONFIG_NOSYSTEM: '1'
+  GIT_TERMINAL_PROMPT: '0'
+  GIT_AUTHOR_NAME: Ancestry CI
+  GIT_AUTHOR_EMAIL: ci@ancestry.invalid
+  GIT_COMMITTER_NAME: Ancestry CI
+  GIT_COMMITTER_EMAIL: ci@ancestry.invalid
+
+jobs:
+  # ------------------------------------------------------------------ lint ---
+  lint:
+    name: Lint (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history: the git engine and the demo-repo tests need real
+          # objects, and shallow clones silently truncate ancestry.
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Check formatting
+        run: npm run format:check
+
+      # Non-fatal on purpose: a newly published advisory should show up in the log
+      # and in the PR summary without turning every unrelated pull request red.
+      # Triage it on the Dependabot PR it generates.
+      - name: Audit dependencies
+        run: npm audit --audit-level=high
+        continue-on-error: true
+
+  # ------------------------------------------------------------- typecheck ---
+  typecheck:
+    name: Type Check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+  # --------------------------------------------------------- unit test run ---
+  test:
+    name: Unit Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm run test
+
+  # -------------------------------------------------- integration test run ---
+  test-integration:
+    name: Integration Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Report git identity
+        run: git --version
+
+      # These suites create real repositories and shell out to git, so they run
+      # on the same matrix as the unit tests on purpose.
+      #
+      # The paths must exist. This previously filtered on `tests/integration`,
+      # which is not a directory: vitest treats a filter as a substring match, so
+      # a path that matches nothing is not an error — the step went green having
+      # run *zero* integration tests, and the demo-repository suite never ran
+      # anywhere in CI. The real integration surface is below.
+      - name: Run git / analysis / cache / demo tests
+        run: npx vitest run tests/git tests/analysis tests/cache tests/demo
+
+  # ----------------------------------------------------------------- build ---
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [lint, typecheck, test, test-integration]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Produces dist/extension.js (CommonJS, `vscode` external) and
+      # media/webview.js (self-contained IIFE for the webview).
+      - name: Build
+        run: npm run build
+
+      - name: Verify build output exists
+        run: |
+          test -f dist/extension.js
+          test -f media/webview.js
+          echo "built $(du -h dist/extension.js media/webview.js)"
+
+  # --------------------------------------------------------------- package ---
+  package:
+    name: Package (VSIX)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Read manifest
+        id: manifest
+        shell: bash
+        run: |
+          name="$(node -p "require('./package.json').name")"
+          version="$(node -p "require('./package.json').version")"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # --allow-missing-repository: package.json has no `repository` field yet.
+      # Remove this flag in the same commit that adds one.
+      # --no-dependencies: everything is bundled into dist/extension.js by
+      # esbuild, so there is no node_modules to ship.
+      - name: Package extension
+        run: >-
+          npx vsce package
+          --no-dependencies
+          --allow-missing-repository
+          --out "${{ steps.manifest.outputs.name }}-${{ steps.manifest.outputs.version }}.vsix"
+
+      # Purely informational: proves the webview bundle made it into the VSIX.
+      # `unzip` ships with the hosted Ubuntu image, but a failure here must not
+      # fail the release over a directory listing.
+      - name: List VSIX contents (first 40 entries)
+        run: unzip -l "${{ steps.manifest.outputs.name }}-${{ steps.manifest.outputs.version }}.vsix" | head -40 || true
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vsix
+          path: '*.vsix'
+          if-no-files-found: error
+          retention-days: 14
+
+  # --------------------------------------------------------------- release ---
+  release:
+    name: Release
+    # Only on a pushed v* tag, and only if every quality gate above passed.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [lint, typecheck, test, test-integration, build, package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Deliberately not `cancel-in-progress`: a retagged release must not abort a
+    # half-written GitHub Release.
+    concurrency:
+      group: release-${{ github.ref }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - name: Download VSIX artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: vsix
+          path: artifacts
+
+      - name: Attach VSIX to the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Publishing a release is a manual decision today, so the Release object
+          # may not exist yet. Create a draft rather than failing the tag push.
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --verify-tag --draft --title "$TAG"
+            echo "created draft release $TAG"
+          fi
+
+          shopt -s nullglob
+          vsix_files=(artifacts/*.vsix)
+          if [ ${#vsix_files[@]} -eq 0 ]; then
+            echo "no .vsix found in artifacts/ — refusing to publish an empty release" >&2
+            exit 1
+          fi
+          for f in "${vsix_files[@]}"; do
+            gh release upload "$TAG" "$f" --clobber
+            echo "attached $(basename "$f") to $TAG"
+          done
+
+  # ----------------------------------------------------------- PR summary ---
+  summary:
+    name: PR Summary
+    # `always()` so a red run still produces the report that explains why.
+    if: always() && github.event_name == 'pull_request'
+    needs: [lint, typecheck, test, test-integration, build, package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Write step summary
+        shell: bash
+        env:
+          # Never interpolate `${{ github.event.* }}` directly into a `run:`
+          # block: a pull-request title is attacker-controlled text and a
+          # `${{ }}` splice there is a shell-injection hole. Values travel
+          # through the environment and are only ever printed.
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          LINT_RESULT: ${{ needs.lint.result }}
+          TYPECHECK_RESULT: ${{ needs.typecheck.result }}
+          TEST_RESULT: ${{ needs.test.result }}
+          INTEGRATION_RESULT: ${{ needs.test-integration.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          PACKAGE_RESULT: ${{ needs.package.result }}
+        run: |
+          icon() {
+            case "$1" in
+              success) echo "✅" ;;
+              failure) echo "❌" ;;
+              cancelled) echo "⏹️" ;;
+              skipped) echo "⏭️" ;;
+              *) echo "❔" ;;
+            esac
+          }
+          {
+            echo "## Ancestry CI — ${PR_TITLE:-pull request}"
+            echo
+            echo "Commit: \`$PR_HEAD_SHA\`"
+            echo
+            echo "| Stage | Result |"
+            echo "| --- | --- |"
+            echo "| Lint + format | $(icon "$LINT_RESULT") $LINT_RESULT |"
+            echo "| Type check | $(icon "$TYPECHECK_RESULT") $TYPECHECK_RESULT |"
+            echo "| Unit tests | $(icon "$TEST_RESULT") $TEST_RESULT |"
+            echo "| Integration tests | $(icon "$INTEGRATION_RESULT") $INTEGRATION_RESULT |"
+            echo "| Build | $(icon "$BUILD_RESULT") $BUILD_RESULT |"
+            echo "| Package (VSIX) | $(icon "$PACKAGE_RESULT") $PACKAGE_RESULT |"
+            echo
+            echo "VSIX artifact: [vsix]($RUN_URL) (available on successful runs)"
+            echo
+            echo "A yellow box on Lint is usually a Prettier diff; a yellow box on"
+            echo "Integration is usually a real-repository fixture that leaked state."
+          } >> "$GITHUB_STEP_SUMMARY"
