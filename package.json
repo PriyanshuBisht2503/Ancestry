@@ -221,11 +221,11 @@
     "vscode:prepublish": "npm run build"
   },
   "dependencies": {
-    "d3-scale": "^4.0.2",
-    "d3-scale-chromatic": "^3.1.0",
+    "d3-scale": "^4.0.3",
+    "d3-scale-chromatic": "^3.1.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "three": "^0.170.0"
+    "three": "^0.187.0"
   },
   "devDependencies": {
     "@types/d3-scale": "^4.0.9",
@@ -233,7 +233,7 @@
     "@types/node": "^22.10.2",
     "@types/react": "^18.3.31",
     "@types/react-dom": "^18.3.7",
-    "@types/three": "^0.170.0",
+    "@types/three": "^0.187.0",
     "@types/vscode": "^1.85.0",
     "@typescript-eslint/eslint-plugin": "^8.18.1",
     "@typescript-eslint/parser": "^8.18.1",
